@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Instagram Message Counter</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=WDXL+Lubrifont+SC&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      body {
+        font-family: "Poppins", sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h3>InstaStats by alonearif</h3>
+
+      <div class="file-input-section">
+        <h3>Select Instagram Message JSON Files</h3>
+        <p>Choose multiple message_*.json files to count total messages</p>
+        <input
+          type="file"
+          id="fileInput"
+          class="file-input"
+          multiple
+          accept=".json"
+        />
+        <br />
+        <button onclick="processFiles()" id="processBtn" class="process-btn">
+          Process Files
+        </button>
+
+        <div class="progress" id="progressContainer">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <p id="progressText">Processing files...</p>
+        </div>
+      </div>
+
+      <div class="search-section" id="searchSection" style="display: none">
+        <h3>🔍 Search Messages</h3>
+        <div class="search-input-container">
+          <input
+            type="text"
+            id="searchInput"
+            class="search-input"
+            placeholder="Enter word or phrase to search..."
+          />
+          <button onclick="searchMessages()" id="searchBtn" class="search-btn">
+            Search
+          </button>
+        </div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+
+      <div class="top-words-section" id="topWordsSection" style="display: none">
+        <h3>🔤 Top 10 Most Used Words</h3>
+        <div id="topWordsList" class="top-words-list"></div>
+      </div>
+
+      <div class="results" id="results" style="display: none">
+        <h3>Results</h3>
+        <div id="fileResults"></div>
+
+        <div class="stats" id="statsContainer" style="display: none">
+          <div class="stat-card">
+            <div class="stat-number" id="totalMessages">0</div>
+            <div class="stat-label">Total Messages</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="participantCount">0</div>
+            <div class="stat-label">Participants</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="dateRange">-</div>
+            <div class="stat-label">Conversation Span</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="avgDailyChat">0</div>
+            <div class="stat-label">Avg Daily Chat</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="imagesCount">0</div>
+            <div class="stat-label">
+              📷 Images<br /><span id="imagesPercent">0%</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="audioCount">0</div>
+            <div class="stat-label">
+              🎙️ Voice Messages<br /><span id="audioPercent">0%</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="videosCount">0</div>
+            <div class="stat-label">
+              🎥 Videos<br /><span id="videosPercent">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="participantStats"></div>
+      </div>
+    </div>
+
+    <script>
+      let totalMessageCount = 0;
+      let allParticipants = new Set();
+      let participantMessageCounts = {};
+      let participantImageCounts = {};
+      let participantAudioCounts = {};
+      let participantVideoCounts = {};
+      let earliestTimestamp = null;
+      let latestTimestamp = null;
+      let processedFiles = 0;
+      let totalImagesCount = 0;
+      let totalAudioCount = 0;
+      let totalVideosCount = 0;
+      let allMessages = []; // Store all messages for search functionality
+      let wordFrequency = {}; // Store word frequency for most used words
+
+      function processFiles() {
+        const fileInput = document.getElementById("fileInput");
+        const files = fileInput.files;
+
+        if (files.length === 0) {
+          alert("Please select at least one JSON file");
+          return;
+        }
+
+        // Reset counters
+        totalMessageCount = 0;
+        allParticipants.clear();
+        participantMessageCounts = {};
+        participantImageCounts = {};
+        participantAudioCounts = {};
+        participantVideoCounts = {};
+        earliestTimestamp = null;
+        latestTimestamp = null;
+        processedFiles = 0;
+        totalImagesCount = 0;
+        totalAudioCount = 0;
+        totalVideosCount = 0;
+        allMessages = []; // Reset messages array for search
+        wordFrequency = {}; // Reset word frequency counter
+
+        // Show progress and results
+        document.getElementById("progressContainer").style.display = "block";
+        document.getElementById("results").style.display = "block";
+        document.getElementById("fileResults").innerHTML = "";
+        document.getElementById("statsContainer").style.display = "none";
+
+        // Process each file
+        Array.from(files).forEach((file, index) => {
+          processFile(file, index, files.length);
+        });
+      }
+
+      function processFile(file, index, totalFiles) {
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+          try {
+            const jsonData = JSON.parse(e.target.result);
+
+            if (jsonData.messages && Array.isArray(jsonData.messages)) {
+              const messageCount = jsonData.messages.length;
+              totalMessageCount += messageCount;
+
+              // Track participants
+              if (jsonData.participants) {
+                jsonData.participants.forEach((participant) => {
+                  if (participant.name) {
+                    allParticipants.add(participant.name);
+                  }
+                });
+              }
+
+              // Count messages per participant and track timestamps
+              jsonData.messages.forEach((message) => {
+                // Skip reaction messages (not real messages)
+                if (
+                  message.content &&
+                  message.content.includes("to your message")
+                ) {
+                  return; // Skip this message
+                }
+
+                // Store message for search functionality
+                allMessages.push({
+                  ...message,
+                  fileName: file.name,
+                });
+
+                // Count words from message content
+                if (message.content) {
+                  countWords(message.content);
+                }
+
+                if (message.sender_name) {
+                  participantMessageCounts[message.sender_name] =
+                    (participantMessageCounts[message.sender_name] || 0) + 1;
+                }
+
+                // Track timestamps for date range
+                if (message.timestamp_ms) {
+                  if (
+                    !earliestTimestamp ||
+                    message.timestamp_ms < earliestTimestamp
+                  ) {
+                    earliestTimestamp = message.timestamp_ms;
+                  }
+                  if (
+                    !latestTimestamp ||
+                    message.timestamp_ms > latestTimestamp
+                  ) {
+                    latestTimestamp = message.timestamp_ms;
+                  }
+                }
+
+                // Count media types
+                if (message.photos && message.photos.length > 0) {
+                  totalImagesCount += message.photos.length;
+                  if (message.sender_name) {
+                    participantImageCounts[message.sender_name] =
+                      (participantImageCounts[message.sender_name] || 0) +
+                      message.photos.length;
+                  }
+                }
+                if (message.videos && message.videos.length > 0) {
+                  totalVideosCount += message.videos.length;
+                  if (message.sender_name) {
+                    participantVideoCounts[message.sender_name] =
+                      (participantVideoCounts[message.sender_name] || 0) +
+                      message.videos.length;
+                  }
+                }
+                if (message.audio_files && message.audio_files.length > 0) {
+                  totalAudioCount += message.audio_files.length;
+                  if (message.sender_name) {
+                    participantAudioCounts[message.sender_name] =
+                      (participantAudioCounts[message.sender_name] || 0) +
+                      message.audio_files.length;
+                  }
+                }
+              });
+
+              // Display file result
+              displayFileResult(file.name, messageCount, jsonData.participants);
+            } else {
+              displayError(
+                file.name,
+                "Invalid JSON structure - no messages array found"
+              );
+            }
+          } catch (error) {
+            displayError(file.name, `Error parsing JSON: ${error.message}`);
+          }
+
+          // Update progress
+          processedFiles++;
+          updateProgress(processedFiles, totalFiles);
+
+          // If all files are processed, show final stats
+          if (processedFiles === totalFiles) {
+            showFinalStats();
+          }
+        };
+
+        reader.onerror = function () {
+          displayError(file.name, "Error reading file");
+          processedFiles++;
+          updateProgress(processedFiles, totalFiles);
+        };
+
+        reader.readAsText(file);
+      }
+
+      function displayFileResult(filename, messageCount, participants) {
+        const fileResults = document.getElementById("fileResults");
+        const resultDiv = document.createElement("div");
+        resultDiv.className = "result-item";
+
+        const participantNames = participants
+          ? participants.map((p) => p.name).join(", ")
+          : "Unknown";
+
+        resultDiv.innerHTML = `
+                <strong>${filename}</strong><br>
+                Messages: ${messageCount.toLocaleString()}<br>
+                Participants: ${participantNames}
+            `;
+
+        fileResults.appendChild(resultDiv);
+      }
+
+      function displayError(filename, errorMessage) {
+        const fileResults = document.getElementById("fileResults");
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "error";
+        errorDiv.innerHTML = `<strong>${filename}</strong>: ${errorMessage}`;
+        fileResults.appendChild(errorDiv);
+      }
+
+      function updateProgress(current, total) {
+        const progressFill = document.getElementById("progressFill");
+        const progressText = document.getElementById("progressText");
+
+        const percentage = (current / total) * 100;
+        progressFill.style.width = percentage + "%";
+        progressText.textContent = `Processing files... ${current}/${total}`;
+      }
+
+      function showFinalStats() {
+        // Hide progress
+        document.getElementById("progressContainer").style.display = "none";
+
+        // Show stats and search section
+        document.getElementById("statsContainer").style.display = "grid";
+        document.getElementById("searchSection").style.display = "block";
+        document.getElementById("topWordsSection").style.display = "block";
+
+        // Update stat cards
+        document.getElementById("totalMessages").textContent =
+          totalMessageCount.toLocaleString();
+        document.getElementById("participantCount").textContent =
+          allParticipants.size;
+        document.getElementById("imagesCount").textContent =
+          totalImagesCount.toLocaleString();
+        document.getElementById("audioCount").textContent =
+          totalAudioCount.toLocaleString();
+        document.getElementById("videosCount").textContent =
+          totalVideosCount.toLocaleString();
+
+        // Calculate and display percentages for media types
+        const totalMediaCount =
+          totalImagesCount + totalAudioCount + totalVideosCount;
+
+        if (totalMediaCount > 0) {
+          const imagesPercent = (
+            (totalImagesCount / totalMediaCount) *
+            100
+          ).toFixed(1);
+          const audioPercent = (
+            (totalAudioCount / totalMediaCount) *
+            100
+          ).toFixed(1);
+          const videosPercent = (
+            (totalVideosCount / totalMediaCount) *
+            100
+          ).toFixed(1);
+
+          document.getElementById(
+            "imagesPercent"
+          ).textContent = `${imagesPercent}%`;
+          document.getElementById(
+            "audioPercent"
+          ).textContent = `${audioPercent}%`;
+          document.getElementById(
+            "videosPercent"
+          ).textContent = `${videosPercent}%`;
+        } else {
+          document.getElementById("imagesPercent").textContent = "0%";
+          document.getElementById("audioPercent").textContent = "0%";
+          document.getElementById("videosPercent").textContent = "0%";
+        }
+
+        // Format date range as days count
+        if (earliestTimestamp && latestTimestamp) {
+          const timeDifferenceMs = latestTimestamp - earliestTimestamp;
+          const daysDifference = Math.ceil(
+            timeDifferenceMs / (1000 * 60 * 60 * 24)
+          );
+          document.getElementById(
+            "dateRange"
+          ).textContent = `${daysDifference} days`;
+          document.getElementById("dateRange").style.fontSize = "20px";
+
+          // Calculate average daily chat
+          const avgDaily =
+            daysDifference > 0
+              ? (totalMessageCount / daysDifference).toFixed(1)
+              : 0;
+          document.getElementById("avgDailyChat").textContent = avgDaily;
+        } else {
+          document.getElementById("avgDailyChat").textContent = "0";
+        }
+
+        // Show participant message breakdown
+        showParticipantStats();
+
+        // Display top used words
+        displayTopWords();
+      }
+
+      function showParticipantStats() {
+        const participantStatsDiv = document.getElementById("participantStats");
+
+        if (Object.keys(participantMessageCounts).length > 0) {
+          let participantHtml =
+            '<h4>Messages by Participant:</h4><div class="stats">';
+
+          // Sort participants by message count
+          const sortedParticipants = Object.entries(
+            participantMessageCounts
+          ).sort(([, a], [, b]) => b - a);
+
+          sortedParticipants.forEach(([name, count]) => {
+            const percentage = ((count / totalMessageCount) * 100).toFixed(1);
+            participantHtml += `
+                        <div class="stat-card">
+                            <div class="stat-number">${count.toLocaleString()}</div>
+                            <div class="stat-label">${name}<br><span>${percentage}%</span></div>
+                        </div>
+                    `;
+          });
+
+          participantHtml += "</div>";
+
+          // Add media breakdown by participant
+          participantHtml +=
+            '<h4>📷 Images by Participant:</h4><div class="stats">';
+          const sortedImageParticipants = Object.entries(
+            participantImageCounts
+          ).sort(([, a], [, b]) => b - a);
+          sortedImageParticipants.forEach(([name, count]) => {
+            const percentage =
+              totalImagesCount > 0
+                ? ((count / totalImagesCount) * 100).toFixed(1)
+                : 0;
+            participantHtml += `
+                        <div class="stat-card">
+                            <div class="stat-number">${count.toLocaleString()}</div>
+                            <div class="stat-label">${name}<br><span>${percentage}%</span></div>
+                        </div>
+                    `;
+          });
+          participantHtml += "</div>";
+
+          // Add audio breakdown by participant
+          participantHtml +=
+            '<h4>🎙️ Voice Messages by Participant:</h4><div class="stats">';
+          const sortedAudioParticipants = Object.entries(
+            participantAudioCounts
+          ).sort(([, a], [, b]) => b - a);
+          sortedAudioParticipants.forEach(([name, count]) => {
+            const percentage =
+              totalAudioCount > 0
+                ? ((count / totalAudioCount) * 100).toFixed(1)
+                : 0;
+            participantHtml += `
+                        <div class="stat-card">
+                            <div class="stat-number">${count.toLocaleString()}</div>
+                            <div class="stat-label">${name}<br><span>${percentage}%</span></div>
+                        </div>
+                    `;
+          });
+          participantHtml += "</div>";
+
+          // Add video breakdown by participant
+          participantHtml +=
+            '<h4>🎥 Videos by Participant:</h4><div class="stats">';
+          const sortedVideoParticipants = Object.entries(
+            participantVideoCounts
+          ).sort(([, a], [, b]) => b - a);
+          sortedVideoParticipants.forEach(([name, count]) => {
+            const percentage =
+              totalVideosCount > 0
+                ? ((count / totalVideosCount) * 100).toFixed(1)
+                : 0;
+            participantHtml += `
+                        <div class="stat-card">
+                            <div class="stat-number">${count.toLocaleString()}</div>
+                            <div class="stat-label">${name}<br><span>${percentage}%</span></div>
+                        </div>
+                    `;
+          });
+          participantHtml += "</div>";
+
+          participantStatsDiv.innerHTML = participantHtml;
+        }
+      }
+
+      // Word frequency functions
+      function countWords(text) {
+        if (!text) return;
+
+        // Extract specific ASCII emoticons only: ";-;" ":v" ":(" ":<" and their variations
+        const asciiEmoticonRegex = /;-;+|:v+|:\(+|:<+/g;
+        const asciiEmoticons = text.match(asciiEmoticonRegex) || [];
+
+        // Remove ASCII emoticons from text for word processing
+        let cleanText = text.replace(asciiEmoticonRegex, " ");
+
+        // Clean and split text into words
+        const words = cleanText
+          .toLowerCase()
+          .replace(/[^\w\s]/g, " ") // Replace punctuation with spaces
+          .split(/\s+/)
+          .filter((word) => word.length > 0 && !isCommonWord(word)); // Filter out empty strings and common words
+
+        // Count word frequency
+        words.forEach((word) => {
+          wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+        });
+
+        // Count ASCII emoticon frequency
+        asciiEmoticons.forEach((emoticon) => {
+          const cleanEmoticon = emoticon.trim();
+          if (cleanEmoticon) {
+            wordFrequency[cleanEmoticon] =
+              (wordFrequency[cleanEmoticon] || 0) + 1;
+          }
+        });
+      }
+
+      // Filter out common words (stop words)
+      function isCommonWord(word) {
+        const commonWords = [
+          // Articles
+          "a",
+          "e",
+          "to",
+          "i",
+        ];
+
+        return commonWords.includes(word);
+      }
+
+      function displayTopWords() {
+        const topWordsList = document.getElementById("topWordsList");
+
+        if (Object.keys(wordFrequency).length === 0) {
+          topWordsList.innerHTML =
+            '<div style="text-align: center; color: #bbb;">No words to display</div>';
+          return;
+        }
+
+        // Sort words by frequency and get top 10
+        const sortedWords = Object.entries(wordFrequency)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 40);
+
+        // Generate HTML for top words
+        let wordsHTML = "";
+        sortedWords.forEach(([word, count], index) => {
+          wordsHTML += `
+            <div class="word-item">
+              <div class="word-rank">${index + 1}</div>
+              <div class="word-text">${word}</div>
+              <div class="word-count">${count.toLocaleString()}</div>
+            </div>
+          `;
+        });
+
+        topWordsList.innerHTML = wordsHTML;
+      }
+
+      // Search functionality
+      function searchMessages() {
+        const searchTerm = document.getElementById("searchInput").value.trim();
+        const searchResults = document.getElementById("searchResults");
+
+        if (!searchTerm) {
+          searchResults.innerHTML =
+            '<div class="search-stats">Please enter a search term</div>';
+          return;
+        }
+
+        if (allMessages.length === 0) {
+          searchResults.innerHTML =
+            '<div class="search-stats">No messages loaded. Please process files first.</div>';
+          return;
+        }
+
+        // Perform search
+        const results = allMessages.filter((message) => {
+          return (
+            message.content &&
+            message.content.toLowerCase().includes(searchTerm.toLowerCase())
+          );
+        });
+
+        // Display results
+        if (results.length === 0) {
+          searchResults.innerHTML = `<div class="search-stats">No messages found containing "${searchTerm}"</div>`;
+          return;
+        }
+
+        // Generate results HTML
+        let resultsHTML = `<div class="search-stats">Found ${results.length} message(s) containing "${searchTerm}"</div>`;
+
+        results.slice(0, 50).forEach((message) => {
+          // Limit to first 50 results
+          const highlightedContent = message.content.replace(
+            new RegExp(escapeRegex(searchTerm), "gi"),
+            `<span class="highlight">$&</span>`
+          );
+
+          const messageDate = message.timestamp_ms
+            ? new Date(message.timestamp_ms).toLocaleString()
+            : "Unknown date";
+
+          resultsHTML += `
+            <div class="search-result-item">
+              <div class="search-result-header">${
+                message.sender_name || "Unknown"
+              }</div>
+              <div class="search-result-content">${highlightedContent}</div>
+              <div class="search-result-meta">
+                <span>${messageDate}</span>
+                <span>${message.fileName}</span>
+              </div>
+            </div>
+          `;
+        });
+
+        if (results.length > 50) {
+          resultsHTML += `<div class="search-stats">Showing first 50 results of ${results.length} total matches</div>`;
+        }
+
+        searchResults.innerHTML = resultsHTML;
+      }
+
+      // Helper function to escape regex special characters
+      function escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+
+      // Add Enter key support for search
+      document.addEventListener("DOMContentLoaded", () => {
+        const searchInput = document.getElementById("searchInput");
+        if (searchInput) {
+          searchInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+              searchMessages();
+            }
+          });
+        }
+      });
+
+      // Add drag and drop functionality
+      const fileInputSection = document.querySelector(".file-input-section");
+
+      fileInputSection.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        fileInputSection.classList.add("drag-over");
+      });
+
+      fileInputSection.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        fileInputSection.classList.remove("drag-over");
+      });
+
+      fileInputSection.addEventListener("drop", (e) => {
+        e.preventDefault();
+        fileInputSection.classList.remove("drag-over");
+
+        const files = e.dataTransfer.files;
+        document.getElementById("fileInput").files = files;
+
+        // Auto-process files after drag and drop
+        if (files.length > 0) {
+          processFiles();
+        }
+      });
+    </script>
+  </body>
+</html>
